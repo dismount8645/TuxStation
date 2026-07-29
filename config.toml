@@ -1,1 +1,5 @@
-[customizations]
+[customizations.installer.kickstart]
+contents = """
+# Enable graphical interactive Anaconda installer wizard
+graphical
+"""
