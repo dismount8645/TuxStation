@@ -1,4 +1,4 @@
-name: Build Custom OS Image
+name: Build Custom OS Image & ISO
 on:
   schedule:
     - cron: "0 0 * * 0"
@@ -30,3 +30,30 @@ jobs:
           registry_token: ${{ secrets.GITHUB_TOKEN }}
           cosign_private_key: ${{ secrets.SIGNING_SECRET }}
 
+  build-iso:
+    name: Build Installer ISO
+    needs: bluebuild
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build ISO using bootc-image-builder
+        run: |
+          mkdir -p output
+          sudo podman run --rm --privileged \
+            --entrypoint bootc-image-builder \
+            -v ./output:/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type iso \
+            ghcr.io/${{ github.repository_owner }}/custom-atomic-os:latest
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-atomic-os-iso
+          path: output/bootiso/install.iso
