@@ -41,13 +41,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create empty config.toml
-        run: touch config.toml
-
       - name: Build ISO using bootc-image-builder Action
         uses: osbuild/bootc-image-builder-action@v0.0.2
         with:
-          config-file: config.toml
+          config-file: config/config.toml
           image: ghcr.io/${{ github.repository_owner }}/custom-atomic-os:latest
           type: iso
 
