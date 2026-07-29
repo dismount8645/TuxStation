@@ -8,7 +8,7 @@ modules:
   - type: rpm-ostree
     install:
       - zsh
-      - neofetch
+      - fastfetch
       - htop
       - git
       - curl
