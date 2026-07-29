@@ -5,10 +5,6 @@ base-image: ghcr.io/ublue-os/silverblue-main
 image-version: latest
 
 modules:
-  - type: files
-    files:
-      - usr: /usr
-
   - type: rpm-ostree
     install:
       - zsh
