@@ -15,7 +15,7 @@ modules:
       - tmux
       - distrobox
 
-  - type: default-flatpaks
+  - type: default-flatpaks@v1
     notify: true
     system:
       repo-url: https://dl.flathub.org/repo/flathub.flatpakrepo
