@@ -1,0 +1,6 @@
+[Unit]
+Description=System Update (rpm-ostree, flatpak, firmware)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -lc '/home/jacob/.local/bin/system-update --auto'
