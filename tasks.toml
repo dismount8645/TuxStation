@@ -104,13 +104,6 @@ description = "Recurring upkeep tasks; run them whenever you like."
   confirm = "Upgrades the whole system to the latest image. A reboot will be needed."
 
   [[group.item]]
-  id = "ostree-status"
-  name = "Show rpm-ostree status"
-  detail = "Lists current deployments and the layered or removed packages on each."
-  command = "rpm-ostree status"
-  recurring = true
-
-  [[group.item]]
   id = "update-flatpaks"
   name = "Update all Flatpak apps"
   detail = "Updates every installed Flatpak and runtime."

@@ -9,8 +9,11 @@ system updated — so you don't have to remember a wall of commands.
 ## Features
 
 - Task catalog in a single editable `tasks.toml` — no code needed to add tasks
-- Tasks grouped into tabs (System / Applications / Maintenance / Tweaks / Dev)
-- Click-to-run: tick the tasks you want, hit **Run selected**, watch live output
+- Tasks grouped into tabs (Status / System / Applications / Maintenance / …)
+- Click-to-run: tick the tasks you want, hit **Run selected**; results appear
+  as row icons and toast notifications — no terminal, no log viewer
+- **Status** tab renders rpm-ostree deployments, layered packages, and removed
+  packages graphically, refreshed after every run
 - Tasks can layer packages (`pkexec rpm-ostree`), install Flatpak apps, apply
   `gsettings`, or run any shell command
 - `recurring` tasks (updates, cleanup) stay runnable and aren't marked permanent
@@ -40,7 +43,10 @@ Or just run `./tuxility` from the repo. The script looks for tasks in
 ## Usage
 
 - **Check** — re-evaluate every task's `check` command and refresh the done marks
-- **Run selected** — execute the ticked tasks in order, streaming output to the log
+- **Run selected** — execute the ticked tasks in order; each finishes with a
+  toast and a row icon (checkmark on success, error on failure)
+- **Status** tab — current deployment, layered packages, and removed packages
+  (use its **Refresh** button to re-read)
 - Menu (⋮): **Select all**, **Clear selection**, **Reset done state**
 - Shortcuts: `F5` check, `Ctrl+Enter` run selected, `Ctrl+A` / `Ctrl+Shift+A`
   select / clear all
