@@ -27,6 +27,14 @@ description = "Repositories and base system."
   check = "flatpak remotes --columns=name | grep -qx flathub"
 
   [[group.item]]
+  id = "flathub-only"
+  name = "Make Flathub the only repo"
+  detail = "Removes every other Flatpak remote, keeping just Flathub."
+  command = "for r in $(flatpak remotes --columns=name | grep -v '^flathub$'); do flatpak remote-delete --force \"$r\"; done; flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+  confirm = "This deletes all Flatpak remotes except Flathub. Apps installed from a removed repo may need to be reinstalled."
+  check = "flatpak remotes --columns=name | grep -qx flathub && [ \"$(flatpak remotes --columns=name | grep -vc flathub)\" = 0 ]"
+
+  [[group.item]]
   id = "codecs"
   name = "Multimedia codecs"
   detail = "Layers gstreamer1-plugin-libav for H.264/H.265 video playback."
