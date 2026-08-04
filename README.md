@@ -1,73 +1,62 @@
 # Tuxility
 
-A small set of maintenance tools for Fedora Atomic desktops (Silverblue, Kinoite, etc.).
+A post-install setup assistant for Fedora Atomic desktops (Silverblue, Kinoite,
+Bazzite, etc.). It presents a click-to-run checklist of common first tasks —
+enabling Flathub, installing apps, layering packages with `rpm-ostree`, and
+applying desktop settings — so you don't have to remember a wall of commands
+after a fresh install.
 
-## System Update
+## Features
 
-`system-update` is a one-command updater for OSTree-based Fedora systems. It updates
-firmware (fwupd), Flatpak apps, and the rpm-ostree system in a single run, with
-pre-flight checks, a rotating log, desktop notifications, and optional automation
-via systemd timers.
+- Task catalog in a single editable `tasks.toml` — no code needed to add tasks
+- Click-to-run: tick the tasks you want, hit **Run selected**, watch live output
+- Each task can layer packages (`pkexec rpm-ostree`), install Flatpak apps,
+  apply `gsettings`, or run any shell command
+- Per-task `check` commands mark already-installed/configured items as done
+- Done state persisted at `~/.local/state/tuxility-setup.json`
+- Confirmation prompts for risky tasks, reboot prompt when layering requires it
+- Runs entirely from the immutable base image — no system packages to layer
 
-### Features
-
-- Updates firmware, Flatpak apps, and the rpm-ostree system in one run
-- Pre-flight checks: network, disk space, battery level (laptops skip firmware below 30%),
-  NTP clock sync, failed systemd units, journal errors, flatpak repo health
-- Refuses to run if another instance is already running (`flock` guard)
-- Rotating log at `~/.local/state/system-update.log` (1 MB, `.old` backup) with ANSI
-  codes stripped for readability
-- Desktop notifications on completion (including reboot-needed and failure states)
-- Exit code is non-zero when any step failed — meaningful for automation
-- `--check` mode reports pending updates without changing anything
-
-### Requirements
+## Requirements
 
 - Fedora Atomic (Silverblue/Kinoite) or any rpm-ostree system
-- `rpm-ostree`, `flatpak`, `fwupdmgr`, `mokutil`, `pkexec`
+- `python3-gobject`, `gtk4`, `libadwaita` (present in the base image), `pkexec`
+- `flatpak` and `rpm-ostree` for the default catalog
 
-### Install
-
-```sh
-install -m 755 system-update ~/.local/bin/system-update
-```
-
-### Usage
-
-```text
-system-update [options]
-
-  --auto     run unattended, no prompts (for timers/scripts)
-  --check    only report available updates, change nothing
-  --repair   additionally deep-verify Flatpak installs
-  --help     show this help
-```
-
-The system update step uses `pkexec`, so it prompts for your password (or runs
-unattended via polkit when invoked by a timer in an active graphical session).
-
-### Automation
-
-`extras/systemd/` contains user units for a weekly full update (Mon 03:00) and a
-daily update check (09:00, `--auto --check`). Install and enable them with:
+## Install
 
 ```sh
-mkdir -p ~/.config/systemd/user
-cp extras/systemd/* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now system-update.timer system-update-check.timer
+install -m 755 tuxility-setup ~/.local/bin/tuxility-setup
+cp tasks.toml ~/.config/tuxility/tasks.toml
+cp extras/tuxility-setup.desktop ~/.local/share/applications/
 ```
 
-`extras/system-update.desktop` adds a launcher to the app grid (uses `ptyxis`).
-The shipped units and desktop file reference `/home/<user>/.local/bin/system-update` —
-edit them if your user or install path differs.
+Or just run `./tuxility-setup` from the repo. The script looks for tasks in
+`~/.config/tuxility/tasks.toml` first, then next to the script.
 
-### Logging
+## Usage
 
-All output is appended to `~/.local/state/system-update.log` and rotated once it
-exceeds 1 MB.
+- **Check** — re-evaluate every task's `check` command and refresh the done marks
+- **Run selected** — execute the ticked tasks in order, streaming output to the log
+- Menu (⋮): **Select all**, **Clear selection**, **Reset done state**
 
-### Exit codes
+`tuxility-setup --list` prints the catalog for quick review.
 
-- `0` — all steps succeeded (or nothing to do)
-- `1` — a step failed, the lock is held, pre-flight abort, or an unknown option
+## Writing tasks
+
+`tasks.toml` groups tasks under `[[group]]`; each task is a `[[group.item]]`:
+
+```toml
+[[group.item]]
+id = "my-app"                    # unique id, used for the done state
+name = "My app"                  # row title
+detail = "One-line description"  # row subtitle
+command = "flatpak install --user -y flathub org.example.App"   # what to run
+sudo = false                     # run via pkexec (e.g. rpm-ostree layer)
+check = "flatpak info --user org.example.App >/dev/null 2>&1"   # exit 0 = done
+reboot = false                   # warn + offer reboot after the run
+confirm = "Explain what this does"   # optional pre-run confirmation text
+```
+
+`command` and `check` are shell strings (run with `bash -lc`). Tasks with
+`sudo = true` are wrapped in `pkexec`, which pops the polkit password dialog.

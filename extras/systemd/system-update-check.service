@@ -1,6 +1,0 @@
-[Unit]
-Description=System Update check (no changes applied)
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -lc '/home/jacob/.local/bin/system-update --auto --check'

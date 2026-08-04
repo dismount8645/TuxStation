@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=System Update
-GenericName=Update System
-Comment=Update firmware, Flatpak apps, and the system
-Exec=ptyxis --title "System Update" -x "bash -lc /home/jacob/.local/bin/system-update"
-Icon=software-update-available-symbolic
-Terminal=false
-Categories=System;

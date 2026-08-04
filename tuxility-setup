@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+# Tuxility Setup - post-install checklist for Fedora Atomic
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import tomllib
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk, Gio, GLib
+
+APP_ID = "io.github.dismount8645.Tuxility"
+ANSI_RE = re.compile(r"\x1B\[[0-9;]*[mK]")
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+XDG_STATE_HOME = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
+STATE_FILE = os.path.join(XDG_STATE_HOME, "tuxility-setup.json")
+XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+CONFIG_FILE = os.path.join(XDG_CONFIG_HOME, "tuxility", "tasks.toml")
+
+ICONS = {
+    "done": "object-select-symbolic",
+    "error": "dialog-error-symbolic",
+}
+
+
+def strip_ansi(s):
+    return ANSI_RE.sub("", s)
+
+
+def load_tasks():
+    for path in (CONFIG_FILE, os.path.join(SCRIPT_DIR, "tasks.toml")):
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    return tomllib.load(f)
+            except tomllib.TOMLDecodeError as e:
+                print(f"error: could not parse {path}: {e}", file=sys.stderr)
+                sys.exit(1)
+    print("error: no tasks.toml found", file=sys.stderr)
+    sys.exit(1)
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            return set(json.load(f).get("done", []))
+    except (OSError, ValueError):
+        return set()
+
+
+def save_state(done):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"done": sorted(done)}, f, indent=2)
+    os.replace(tmp, STATE_FILE)
+
+
+def run_check(check):
+    try:
+        p = subprocess.run(
+            ["bash", "-lc", check], timeout=20, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return p.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+class SetupWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, default_width=860, default_height=680)
+        self.set_title("Tuxility Setup")
+
+        self.tasks = load_tasks()
+        self.done = load_state()
+        self.rows = {}
+        self.busy = False
+        self.proc = None
+        self.failed = False
+        self.needs_reboot = False
+
+        self.banner = Adw.Banner(title="")
+        self.banner.set_revealed(False)
+
+        self.run_btn = Gtk.Button(label="Run selected")
+        self.run_btn.add_css_class("suggested-action")
+        self.run_btn.connect("clicked", self.on_run)
+
+        self.check_btn = Gtk.Button(label="Check")
+        self.check_btn.connect("clicked", self.on_check)
+
+        header = Adw.HeaderBar()
+        header.pack_start(self.check_btn)
+        header.pack_end(self.run_btn)
+
+        self.tv = Gtk.TextView()
+        self.tv.set_editable(False)
+        self.tv.set_monospace(True)
+        self.tv.set_wrap_mode(Gtk.WrapMode.CHAR)
+        self.buf = self.tv.get_buffer()
+
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sw.set_vexpand(True)
+        sw.set_max_content_height(240)
+        sw.set_child(self.tv)
+
+        self.log_row = Adw.ExpanderRow()
+        self.log_row.set_title("Output log")
+        self.log_row.add_row(sw)
+
+        groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        groups_box.set_margin_top(4)
+        for group in self.tasks.get("group", []):
+            erow = Adw.ExpanderRow()
+            erow.set_title(group["name"])
+            erow.set_subtitle(group.get("description", ""))
+            erow.set_expanded(True)
+            for item in group.get("item", []):
+                arow = Adw.ActionRow()
+                arow.set_title(item["name"])
+                arow.set_subtitle(item.get("detail", ""))
+                cb = Gtk.CheckButton()
+                cb.set_valign(Gtk.Align.CENTER)
+                icon = Gtk.Image()
+                icon.set_valign(Gtk.Align.CENTER)
+                arow.add_suffix(icon)
+                arow.add_suffix(cb)
+                arow.set_activatable_widget(cb)
+                erow.add_row(arow)
+                self.rows[item["id"]] = {
+                    "task": item,
+                    "check": cb,
+                    "icon": icon,
+                    "group_row": erow,
+                }
+            groups_box.append(erow)
+
+        self.spinner = Gtk.Spinner()
+        self.status = Gtk.Label(label="", xalign=0)
+        statusbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        statusbar.append(self.spinner)
+        statusbar.append(self.status)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+        box.set_margin_bottom(12)
+        box.append(self.banner)
+        box.append(groups_box)
+        box.append(self.log_row)
+        box.append(statusbar)
+
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(820)
+        clamp.set_child(box)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        content.append(header)
+        content.append(clamp)
+
+        self.set_content(content)
+        self.connect("close-request", self.on_close)
+
+        app.add_action(self.make_action("refresh", self.on_check))
+        app.add_action(self.make_action("select-all", self.on_select_all))
+        app.add_action(self.make_action("select-none", self.on_select_none))
+        app.add_action(self.make_action("reset-state", self.on_reset_state))
+
+    @staticmethod
+    def make_action(name, handler):
+        action = Gio.SimpleAction.new(name, None)
+        action.connect("activate", handler)
+        return action
+
+    # ---- helpers ----
+
+    def set_busy(self, busy, label=""):
+        self.busy = busy
+        self.spinner.start() if busy else self.spinner.stop()
+        self.status.set_text(label)
+
+    def set_row_status(self, row, status):
+        icon = row["icon"]
+        if status is None:
+            icon.set_visible(False)
+        else:
+            icon.set_from_icon_name(ICONS[status])
+            icon.set_visible(True)
+
+    def ui_set_sensitive(self, sensitive):
+        self.run_btn.set_sensitive(sensitive)
+        self.check_btn.set_sensitive(sensitive)
+        for row in self.rows.values():
+            row["check"].set_sensitive(sensitive)
+
+    def update_counts(self):
+        self.status.set_text(f"{len(self.done)} / {len(self.rows)} tasks done")
+
+    def append_log(self, text):
+        self.buf.insert(self.buf.get_end_iter(), text)
+        mark = self.buf.create_mark(None, self.buf.get_end_iter(), False)
+        self.tv.scroll_to_mark(mark, 0.0, False, 0, 0)
+        self.buf.delete_mark(mark)
+        return False
+
+    # ---- actions ----
+
+    def on_check(self, *args):
+        if self.busy:
+            return
+        self.set_busy(True, "Checking status…")
+
+        def worker():
+            for row in self.rows.values():
+                task = row["task"]
+                done = task["id"] in self.done or (
+                    bool(task.get("check")) and run_check(task["check"])
+                )
+                GLib.idle_add(self.set_row_status, row, "done" if done else None)
+            GLib.idle_add(self.on_check_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_check_done(self):
+        self.set_busy(False, "")
+        self.update_counts()
+
+    def on_select_all(self, *args):
+        for row in self.rows.values():
+            row["check"].set_active(True)
+
+    def on_select_none(self, *args):
+        for row in self.rows.values():
+            row["check"].set_active(False)
+
+    def on_reset_state(self, *args):
+        self.done = set()
+        save_state(self.done)
+        for row in self.rows.values():
+            self.set_row_status(row, None)
+        self.update_counts()
+        self.on_check()
+
+    def on_run(self, *args):
+        if self.busy:
+            return
+        selected = [r["task"] for r in self.rows.values() if r["check"].get_active()]
+        if not selected:
+            self.show_info("Nothing selected", "Tick at least one task to run.")
+            return
+
+        confirms = [t for t in selected if t.get("confirm")]
+        if confirms:
+            text = "\n".join(f"• {t['name']}\n  {t['confirm']}" for t in confirms)
+            dlg = Adw.MessageDialog(self, "These tasks need confirmation", text)
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("run", "Run anyway")
+            dlg.set_default_response("cancel")
+            dlg.set_response_appearance("run", Adw.ResponseAppearance.SUGGESTED)
+
+            def on_resp(d, r):
+                d.close()
+                if r == "run":
+                    self.start_run(selected)
+
+            dlg.connect("response", on_resp)
+            dlg.present(self)
+        else:
+            self.start_run(selected)
+
+    def start_run(self, tasks):
+        self.failed = False
+        self.needs_reboot = False
+        self.set_busy(True, "Running…")
+        self.ui_set_sensitive(False)
+        self.log_row.set_expanded(True)
+        self.banner.set_revealed(False)
+        self.append_log(f"--- running {len(tasks)} task(s) ---\n")
+
+        def worker():
+            for i, task in enumerate(tasks):
+                GLib.idle_add(self.set_busy, True, f"Running {i + 1}/{len(tasks)}: {task['name']}")
+                rc = self.exec_task(task)
+                GLib.idle_add(self.task_finished, task, rc)
+            GLib.idle_add(self.on_run_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def exec_task(self, task):
+        cmd = task["command"]
+        argv = ["pkexec", "bash", "-lc", cmd] if task.get("sudo") else ["bash", "-lc", cmd]
+        GLib.idle_add(self.append_log, f"\n$ {task['name']}\n")
+        try:
+            p = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            self.proc = p
+            for line in p.stdout:
+                GLib.idle_add(self.append_log, strip_ansi(line))
+            return p.wait()
+        except Exception as e:  # noqa: BLE001
+            GLib.idle_add(self.append_log, f"error: {e}\n")
+            return 1
+
+    def task_finished(self, task, rc):
+        row = self.rows[task["id"]]
+        if rc == 0:
+            self.done.add(task["id"])
+            save_state(self.done)
+            self.set_row_status(row, "done")
+            if task.get("reboot"):
+                self.needs_reboot = True
+        else:
+            self.failed = True
+            self.set_row_status(row, "error")
+        self.append_log(f"[{task['name']}] {'ok' if rc == 0 else f'failed (exit {rc})'}\n")
+
+    def on_run_done(self):
+        self.set_busy(False, "")
+        self.ui_set_sensitive(True)
+        self.update_counts()
+
+        if self.failed:
+            self.banner.set_title("One or more tasks failed — see the output log.")
+            self.banner.add_css_class("error")
+            self.banner.set_revealed(True)
+        elif self.needs_reboot:
+            self.banner.set_title("A reboot is recommended to finish applying changes.")
+            self.banner.add_css_class("warning")
+            self.banner.set_revealed(True)
+            self.prompt_reboot()
+        else:
+            self.banner.set_title("All selected tasks completed.")
+            self.banner.set_revealed(True)
+
+    def prompt_reboot(self):
+        dlg = Adw.MessageDialog.new(
+            self, "Reboot now?", "A reboot is recommended to finish applying changes."
+        )
+        dlg.add_response("later", "Later")
+        dlg.add_response("reboot", "Reboot now")
+        dlg.set_default_response("later")
+        dlg.set_response_appearance("reboot", Adw.ResponseAppearance.SUGGESTED)
+
+        def on_resp(d, r):
+            if r == "reboot":
+                subprocess.Popen(["pkexec", "systemctl", "reboot"])
+            d.close()
+
+        dlg.connect("response", on_resp)
+        dlg.present(self)
+
+    def show_info(self, title, body):
+        dlg = Adw.MessageDialog.new(self, title, body)
+        dlg.add_response("ok", "OK")
+        dlg.set_default_response("ok")
+        dlg.present(self)
+
+    def on_close(self, *args):
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+        return False
+
+
+class SetupApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+        self.connect("activate", self.on_activate)
+
+    def on_activate(self, app):
+        win = SetupWindow(app)
+        win.present()
+        win.on_check()
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--list":
+        for group in load_tasks().get("group", []):
+            print(f"[{group['name']}]")
+            for item in group.get("item", []):
+                print(f"  {item['id']:<18} {item['name']}")
+        return 0
+    app = SetupApp()
+    return app.run(sys.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

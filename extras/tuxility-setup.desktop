@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Tuxility Setup
+Comment=Post-install checklist for Fedora Atomic
+Exec=tuxility-setup
+Icon=preferences-system
+Terminal=false
+Type=Application
+Categories=Settings;System;Utility;
+StartupNotify=true
