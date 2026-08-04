@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import tomllib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import gi
 
@@ -65,7 +66,11 @@ def save_state(done):
 def run_check(check):
     try:
         p = subprocess.run(
-            ["bash", "-lc", check], timeout=20, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ["bash", "-lc", check],
+            timeout=20,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         return p.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -81,6 +86,7 @@ class SetupWindow(Adw.ApplicationWindow):
         self.done = load_state()
         self.rows = {}
         self.busy = False
+        self.closing = False
         self.proc = None
         self.failed = False
         self.needs_reboot = False
@@ -95,8 +101,17 @@ class SetupWindow(Adw.ApplicationWindow):
         self.check_btn = Gtk.Button(label="Check")
         self.check_btn.connect("clicked", self.on_check)
 
+        menu_model = Gio.Menu.new()
+        menu_model.append("Select all", "app.select-all")
+        menu_model.append("Clear selection", "app.select-none")
+        menu_model.append("Reset done state", "app.reset-state")
+
+        btn_menu = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu_model)
+        btn_menu.set_tooltip_text("More options")
+
         header = Adw.HeaderBar()
         header.pack_start(self.check_btn)
+        header.pack_end(btn_menu)
         header.pack_end(self.run_btn)
 
         self.tv = Gtk.TextView()
@@ -144,6 +159,14 @@ class SetupWindow(Adw.ApplicationWindow):
             sw_group.set_child(lb)
             self.stack.add_titled(sw_group, group["name"], group["name"])
 
+        if not self.rows:
+            placeholder = Gtk.Label(
+                label="No tasks found.\nAdd some to ~/.config/tuxility/tasks.toml",
+                justify=Gtk.Justification.CENTER,
+            )
+            placeholder.set_vexpand(True)
+            self.stack.add_titled(placeholder, "empty", "No tasks")
+
         stack_switcher = Gtk.StackSwitcher()
         stack_switcher.set_stack(self.stack)
         stack_switcher.set_halign(Gtk.Align.CENTER)
@@ -177,9 +200,15 @@ class SetupWindow(Adw.ApplicationWindow):
         self.connect("close-request", self.on_close)
 
         app.add_action(self.make_action("refresh", self.on_check))
+        app.add_action(self.make_action("run", self.on_run))
         app.add_action(self.make_action("select-all", self.on_select_all))
         app.add_action(self.make_action("select-none", self.on_select_none))
         app.add_action(self.make_action("reset-state", self.on_reset_state))
+
+        app.set_accels_for_action("app.refresh", ["F5"])
+        app.set_accels_for_action("app.run", ["<Control>Return"])
+        app.set_accels_for_action("app.select-all", ["<Control>a"])
+        app.set_accels_for_action("app.select-none", ["<Control><Shift>a"])
 
     @staticmethod
     def make_action(name, handler):
@@ -223,12 +252,19 @@ class SetupWindow(Adw.ApplicationWindow):
         self.set_busy(True, "Checking status…")
 
         def worker():
-            for row in self.rows.values():
-                task = row["task"]
-                done = task["id"] in self.done or (
-                    bool(task.get("check")) and run_check(task["check"])
-                )
-                GLib.idle_add(self.set_row_status, row, "done" if done else None)
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futs = {
+                    pool.submit(run_check, row["task"]["check"]): row
+                    for row in self.rows.values()
+                    if row["task"]["id"] not in self.done and row["task"].get("check")
+                }
+                for fut in as_completed(futs):
+                    row = futs[fut]
+                    GLib.idle_add(self.set_row_status, row, "done" if fut.result() else None)
+            for task_id in self.done:
+                row = self.rows.get(task_id)
+                if row:
+                    GLib.idle_add(self.set_row_status, row, "done")
             GLib.idle_add(self.on_check_done)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -289,8 +325,12 @@ class SetupWindow(Adw.ApplicationWindow):
 
         def worker():
             for i, task in enumerate(tasks):
+                if self.closing:
+                    return
                 GLib.idle_add(self.set_busy, True, f"Running {i + 1}/{len(tasks)}: {task['name']}")
                 rc = self.exec_task(task)
+                if self.closing:
+                    return
                 GLib.idle_add(self.task_finished, task, rc)
             GLib.idle_add(self.on_run_done)
 
@@ -303,6 +343,7 @@ class SetupWindow(Adw.ApplicationWindow):
         try:
             p = subprocess.Popen(
                 argv,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -333,19 +374,22 @@ class SetupWindow(Adw.ApplicationWindow):
     def on_run_done(self):
         self.set_busy(False, "")
         self.ui_set_sensitive(True)
-
+        if self.closing:
+            return
+        self.banner.remove_css_class("error")
+        self.banner.remove_css_class("warning")
         if self.failed:
             self.banner.set_title("One or more tasks failed — see the output log.")
             self.banner.add_css_class("error")
-            self.banner.set_revealed(True)
         elif self.needs_reboot:
             self.banner.set_title("A reboot is recommended to finish applying changes.")
             self.banner.add_css_class("warning")
             self.banner.set_revealed(True)
             self.prompt_reboot()
+            return
         else:
             self.banner.set_title("All selected tasks completed.")
-            self.banner.set_revealed(True)
+        self.banner.set_revealed(True)
 
     def prompt_reboot(self):
         dlg = Adw.MessageDialog.new(
@@ -371,6 +415,7 @@ class SetupWindow(Adw.ApplicationWindow):
         dlg.present(self)
 
     def on_close(self, *args):
+        self.closing = True
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
         return False
@@ -388,6 +433,14 @@ class SetupApp(Adw.Application):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--help", "-h"):
+        print(
+            "Tuxility - setup and maintenance assistant for Fedora Silverblue\n\n"
+            "Usage: tuxility [--list]\n\n"
+            "  --list   print the task catalog and exit\n"
+            "  (no args)  open the graphical interface"
+        )
+        return 0
     if len(sys.argv) > 1 and sys.argv[1] == "--list":
         for group in load_tasks().get("group", []):
             print(f"[{group['name']}]")

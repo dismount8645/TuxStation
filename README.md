@@ -42,8 +42,11 @@ Or just run `./tuxility` from the repo. The script looks for tasks in
 - **Check** — re-evaluate every task's `check` command and refresh the done marks
 - **Run selected** — execute the ticked tasks in order, streaming output to the log
 - Menu (⋮): **Select all**, **Clear selection**, **Reset done state**
+- Shortcuts: `F5` check, `Ctrl+Enter` run selected, `Ctrl+A` / `Ctrl+Shift+A`
+  select / clear all
 
-`tuxility --list` prints the catalog for quick review.
+`tuxility --list` prints the catalog for quick review; `tuxility --help`
+shows usage.
 
 ## Writing tasks
 
