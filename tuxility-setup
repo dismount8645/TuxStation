@@ -74,7 +74,7 @@ def run_check(check):
 
 class SetupWindow(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, default_width=860, default_height=680)
+        super().__init__(application=app, default_width=700, default_height=560)
         self.set_title("Tuxility Setup")
 
         self.tasks = load_tasks()
@@ -108,7 +108,7 @@ class SetupWindow(Adw.ApplicationWindow):
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sw.set_vexpand(True)
-        sw.set_max_content_height(240)
+        sw.set_max_content_height(160)
         sw.set_child(self.tv)
 
         self.log_row = Adw.ExpanderRow()
@@ -142,6 +142,11 @@ class SetupWindow(Adw.ApplicationWindow):
                 }
             groups_box.append(erow)
 
+        groups_sw = Gtk.ScrolledWindow()
+        groups_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        groups_sw.set_vexpand(True)
+        groups_sw.set_child(groups_box)
+
         self.spinner = Gtk.Spinner()
         self.status = Gtk.Label(label="", xalign=0)
         statusbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -153,12 +158,12 @@ class SetupWindow(Adw.ApplicationWindow):
         box.set_margin_end(16)
         box.set_margin_bottom(12)
         box.append(self.banner)
-        box.append(groups_box)
+        box.append(groups_sw)
         box.append(self.log_row)
         box.append(statusbar)
 
         clamp = Adw.Clamp()
-        clamp.set_maximum_size(820)
+        clamp.set_maximum_size(700)
         clamp.set_child(box)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
