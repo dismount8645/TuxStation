@@ -208,9 +208,6 @@ class SetupWindow(Adw.ApplicationWindow):
         for row in self.rows.values():
             row["check"].set_sensitive(sensitive)
 
-    def update_counts(self):
-        self.status.set_text(f"{len(self.done)} / {len(self.rows)} tasks done")
-
     def append_log(self, text):
         self.buf.insert(self.buf.get_end_iter(), text)
         mark = self.buf.create_mark(None, self.buf.get_end_iter(), False)
@@ -238,7 +235,6 @@ class SetupWindow(Adw.ApplicationWindow):
 
     def on_check_done(self):
         self.set_busy(False, "")
-        self.update_counts()
 
     def on_select_all(self, *args):
         for row in self.rows.values():
@@ -253,7 +249,6 @@ class SetupWindow(Adw.ApplicationWindow):
         save_state(self.done)
         for row in self.rows.values():
             self.set_row_status(row, None)
-        self.update_counts()
         self.on_check()
 
     def on_run(self, *args):
@@ -338,7 +333,6 @@ class SetupWindow(Adw.ApplicationWindow):
     def on_run_done(self):
         self.set_busy(False, "")
         self.ui_set_sensitive(True)
-        self.update_counts()
 
         if self.failed:
             self.banner.set_title("One or more tasks failed — see the output log.")
