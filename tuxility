@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Tuxility Setup - post-install checklist for Fedora Atomic
+# Tuxility - setup and maintenance assistant for Fedora Silverblue
 import json
 import os
 import re
@@ -19,7 +19,7 @@ ANSI_RE = re.compile(r"\x1B\[[0-9;]*[mK]")
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 XDG_STATE_HOME = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
-STATE_FILE = os.path.join(XDG_STATE_HOME, "tuxility-setup.json")
+STATE_FILE = os.path.join(XDG_STATE_HOME, "tuxility.json")
 XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 CONFIG_FILE = os.path.join(XDG_CONFIG_HOME, "tuxility", "tasks.toml")
 
@@ -75,7 +75,7 @@ def run_check(check):
 class SetupWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, default_width=700, default_height=560)
-        self.set_title("Tuxility Setup")
+        self.set_title("Tuxility")
 
         self.tasks = load_tasks()
         self.done = load_state()
@@ -115,13 +115,12 @@ class SetupWindow(Adw.ApplicationWindow):
         self.log_row.set_title("Output log")
         self.log_row.add_row(sw)
 
-        groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        groups_box.set_margin_top(4)
+        self.stack = Gtk.Stack()
+        self.stack.set_vexpand(True)
         for group in self.tasks.get("group", []):
-            erow = Adw.ExpanderRow()
-            erow.set_title(group["name"])
-            erow.set_subtitle(group.get("description", ""))
-            erow.set_expanded(True)
+            lb = Gtk.ListBox()
+            lb.set_selection_mode(Gtk.SelectionMode.NONE)
+            lb.add_css_class("boxed-list")
             for item in group.get("item", []):
                 arow = Adw.ActionRow()
                 arow.set_title(item["name"])
@@ -133,19 +132,22 @@ class SetupWindow(Adw.ApplicationWindow):
                 arow.add_suffix(icon)
                 arow.add_suffix(cb)
                 arow.set_activatable_widget(cb)
-                erow.add_row(arow)
+                lb.append(arow)
                 self.rows[item["id"]] = {
                     "task": item,
                     "check": cb,
                     "icon": icon,
-                    "group_row": erow,
                 }
-            groups_box.append(erow)
+            sw_group = Gtk.ScrolledWindow()
+            sw_group.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            sw_group.set_vexpand(True)
+            sw_group.set_child(lb)
+            self.stack.add_titled(sw_group, group["name"], group["name"])
 
-        groups_sw = Gtk.ScrolledWindow()
-        groups_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        groups_sw.set_vexpand(True)
-        groups_sw.set_child(groups_box)
+        stack_switcher = Gtk.StackSwitcher()
+        stack_switcher.set_stack(self.stack)
+        stack_switcher.set_halign(Gtk.Align.CENTER)
+        stack_switcher.set_margin_top(4)
 
         self.spinner = Gtk.Spinner()
         self.status = Gtk.Label(label="", xalign=0)
@@ -158,7 +160,8 @@ class SetupWindow(Adw.ApplicationWindow):
         box.set_margin_end(16)
         box.set_margin_bottom(12)
         box.append(self.banner)
-        box.append(groups_sw)
+        box.append(stack_switcher)
+        box.append(self.stack)
         box.append(self.log_row)
         box.append(statusbar)
 
@@ -321,8 +324,9 @@ class SetupWindow(Adw.ApplicationWindow):
     def task_finished(self, task, rc):
         row = self.rows[task["id"]]
         if rc == 0:
-            self.done.add(task["id"])
-            save_state(self.done)
+            if not task.get("recurring"):
+                self.done.add(task["id"])
+                save_state(self.done)
             self.set_row_status(row, "done")
             if task.get("reboot"):
                 self.needs_reboot = True

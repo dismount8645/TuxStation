@@ -1,27 +1,28 @@
-# Tuxility setup catalog.
+# Tuxility task catalog.
 #
 # Each task runs a shell command and can be marked as already done via a
-# `check` command (exit code 0 == done). Edit this file to add your own
-# post-install tasks; the GUI reads it on every launch.
+# `check` command (exit code 0 == done). Tasks are grouped into tabs; edit
+# this file to add your own tasks — the GUI reads it on every launch.
 #
 # Task fields:
-#   id        unique identifier (used for the "done" state file)
-#   name      short title shown in the list
-#   detail    longer description shown under the title
-#   command   shell command to run
-#   sudo      run the command via pkexec (default: false)
-#   check     shell command; exit 0 means the task is already done
-#   reboot    set true if a reboot is needed afterwards
-#   confirm   optional text that asks for confirmation before running
+#   id          unique identifier (used for the "done" state file)
+#   name        short title shown in the list
+#   detail      longer description shown under the title
+#   command     shell command to run
+#   sudo        run the command via pkexec (default: false)
+#   check       shell command; exit 0 means the task is already done
+#   reboot      set true if a reboot is needed afterwards
+#   recurring   recurring maintenance action; never stored as permanently done
+#   confirm     optional text that asks for confirmation before running
 
 [[group]]
 name = "System"
-description = "Repositories, layering and firmware-adjacent basics."
+description = "Repositories and base system."
 
   [[group.item]]
   id = "flathub"
   name = "Enable Flathub"
-  detail = "The main Flatpak app store; required by most app installs below."
+  detail = "The main Flatpak app store; required by most app installs."
   command = "flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
   check = "flatpak remotes --columns=name | grep -qx flathub"
 
@@ -79,6 +80,59 @@ description = "Common Flatpak apps, installed per-user from Flathub."
   detail = "Markdown knowledge base."
   command = "flatpak install --user -y flathub md.obsidian.Obsidian"
   check = "flatpak info --user md.obsidian.Obsidian >/dev/null 2>&1"
+
+[[group]]
+name = "Maintenance"
+description = "Recurring upkeep tasks; run them whenever you like."
+
+  [[group.item]]
+  id = "update-system"
+  name = "Update the OS"
+  detail = "Upgrades to the latest Silverblue image."
+  command = "rpm-ostree upgrade"
+  sudo = true
+  reboot = true
+  recurring = true
+  confirm = "Upgrades the whole system to the latest image. A reboot will be needed."
+
+  [[group.item]]
+  id = "update-flatpaks"
+  name = "Update all Flatpak apps"
+  detail = "Updates every installed Flatpak and runtime."
+  command = "flatpak update -y"
+  recurring = true
+
+  [[group.item]]
+  id = "firmware"
+  name = "Update firmware"
+  detail = "Installs pending firmware updates via fwupd."
+  command = "fwupdmgr update"
+  reboot = true
+  recurring = true
+  check = "command -v fwupdmgr >/dev/null"
+
+  [[group.item]]
+  id = "cleanup-flatpaks"
+  name = "Remove unused Flatpak runtimes"
+  detail = "Frees disk by uninstalling runtimes no app uses."
+  command = "flatpak uninstall --unused -y"
+  recurring = true
+
+  [[group.item]]
+  id = "cleanup-deployments"
+  name = "Remove old deployments"
+  detail = "Keeps the two newest images and frees disk space."
+  command = "rpm-ostree cleanup -r"
+  sudo = true
+  recurring = true
+
+  [[group.item]]
+  id = "cleanup-logs"
+  name = "Clean old system logs"
+  detail = "Keeps only the last 30 days of journal entries."
+  command = "journalctl --vacuum-time=30d"
+  sudo = true
+  recurring = true
 
 [[group]]
 name = "Desktop tweaks"

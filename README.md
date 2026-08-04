@@ -1,37 +1,40 @@
 # Tuxility
 
-A post-install setup assistant for Fedora Atomic desktops (Silverblue, Kinoite,
-Bazzite, etc.). It presents a click-to-run checklist of common first tasks —
-enabling Flathub, installing apps, layering packages with `rpm-ostree`, and
-applying desktop settings — so you don't have to remember a wall of commands
-after a fresh install.
+A setup and maintenance assistant for Fedora Silverblue (and other rpm-ostree
+desktops like Kinoite or Bazzite). It presents your post-install checklist and
+ongoing upkeep tasks as a click-to-run tool — enabling Flathub, installing apps,
+layering packages with `rpm-ostree`, applying desktop settings, and keeping the
+system updated — so you don't have to remember a wall of commands.
 
 ## Features
 
 - Task catalog in a single editable `tasks.toml` — no code needed to add tasks
+- Tasks grouped into tabs (System / Applications / Maintenance / Tweaks / Dev)
 - Click-to-run: tick the tasks you want, hit **Run selected**, watch live output
-- Each task can layer packages (`pkexec rpm-ostree`), install Flatpak apps,
-  apply `gsettings`, or run any shell command
+- Tasks can layer packages (`pkexec rpm-ostree`), install Flatpak apps, apply
+  `gsettings`, or run any shell command
+- `recurring` tasks (updates, cleanup) stay runnable and aren't marked permanent
 - Per-task `check` commands mark already-installed/configured items as done
-- Done state persisted at `~/.local/state/tuxility-setup.json`
-- Confirmation prompts for risky tasks, reboot prompt when layering requires it
-- Runs entirely from the immutable base image — no system packages to layer
+- Done state persisted at `~/.local/state/tuxility.json`
+- Confirmation prompts for risky tasks, reboot prompt when an update needs it
+- Runs entirely from the immutable base image — nothing to layer
 
 ## Requirements
 
-- Fedora Atomic (Silverblue/Kinoite) or any rpm-ostree system
+- Fedora Silverblue or any rpm-ostree system
 - `python3-gobject`, `gtk4`, `libadwaita` (present in the base image), `pkexec`
-- `flatpak` and `rpm-ostree` for the default catalog
+- `flatpak`, `rpm-ostree`, and optionally `fwupdmgr` for the default catalog
 
 ## Install
 
 ```sh
-install -m 755 tuxility-setup ~/.local/bin/tuxility-setup
+install -m 755 tuxility ~/.local/bin/tuxility
 cp tasks.toml ~/.config/tuxility/tasks.toml
-cp extras/tuxility-setup.desktop ~/.local/share/applications/
+cp extras/tuxility.desktop ~/.local/share/applications/
+update-desktop-database ~/.local/share/applications/
 ```
 
-Or just run `./tuxility-setup` from the repo. The script looks for tasks in
+Or just run `./tuxility` from the repo. The script looks for tasks in
 `~/.config/tuxility/tasks.toml` first, then next to the script.
 
 ## Usage
@@ -40,11 +43,12 @@ Or just run `./tuxility-setup` from the repo. The script looks for tasks in
 - **Run selected** — execute the ticked tasks in order, streaming output to the log
 - Menu (⋮): **Select all**, **Clear selection**, **Reset done state**
 
-`tuxility-setup --list` prints the catalog for quick review.
+`tuxility --list` prints the catalog for quick review.
 
 ## Writing tasks
 
-`tasks.toml` groups tasks under `[[group]]`; each task is a `[[group.item]]`:
+`tasks.toml` groups tasks under `[[group]]` (one tab each); each task is a
+`[[group.item]]`:
 
 ```toml
 [[group.item]]
@@ -55,6 +59,7 @@ command = "flatpak install --user -y flathub org.example.App"   # what to run
 sudo = false                     # run via pkexec (e.g. rpm-ostree layer)
 check = "flatpak info --user org.example.App >/dev/null 2>&1"   # exit 0 = done
 reboot = false                   # warn + offer reboot after the run
+recurring = false                # never store as permanently done
 confirm = "Explain what this does"   # optional pre-run confirmation text
 ```
 
